@@ -49,6 +49,21 @@
 </head>
 <body>
 
+    <div id="auth-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2b303b; z-index: 999999; display: flex; justify-content: center; align-items: center; color: white; flex-direction: column; text-align: center; font-family: 'Microsoft YaHei', sans-serif;">
+    <div style="background: rgba(255,255,255,0.1); padding: 40px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);">
+        <h2 style="margin-top:0; letter-spacing: 2px;">3C 系统需授权访问</h2>
+        <p style="color:#aaa; font-size:14px; margin-bottom: 20px;">请将下方设备码发给管理员获取激活码</p>
+        
+        <h3 style="margin-bottom: 30px;">设备码: <span id="display-device-id" style="color:#00e5ff; letter-spacing: 3px;">读取中...</span></h3>
+        
+        <input type="text" id="key-input" placeholder="请输入激活码" style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 5px; border: none; font-size: 16px; text-align: center; outline: none; text-transform: uppercase;">
+        
+        <button onclick="verifyKey()" style="width: 100%; padding: 12px; background: #0066ff; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer;">激活系统</button>
+        
+        <p id="auth-error" style="color: #ff4444; margin-top: 15px; display: none;">❌ 激活码错误，请重新确认！</p>
+    </div>
+</div>
+    
     <div id="toolbar">
         <select id="lang-select">
             <option value="CN">简体中文</option><option value="TW">繁體中文</option>
