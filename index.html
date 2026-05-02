@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3C 人体测量系统 (Web客户端)</title>
+    <style>
+        body { font-family: -apple-system, "Microsoft YaHei", sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; background-color: #f0f0f0; overflow: hidden; }
+        
+        #toolbar { background-color: #ffffff; border-bottom: 1px solid #d0d0d0; padding: 6px 15px; display: flex; align-items: center; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); z-index: 10; }
+        button { padding: 5px 12px; font-size: 13px; cursor: pointer; border: 1px solid #bbb; border-radius: 3px; background-color: #fff; transition: 0.2s; }
+        button:hover { background-color: #e6e6e6; }
+        select { padding: 4px; font-size: 13px; border: 1px solid #bbb; border-radius: 3px; }
+        #btn-flip.active { background-color: #ffcccc; border-color: #ff9999; }
+        #btn-measure.active { background-color: #ccffcc; border-color: #99ff99; }
+        .zoom-controls { display: flex; align-items: center; gap: 2px; background: #fff; padding: 2px; border: 1px solid #bbb; border-radius: 3px; }
+        .zoom-controls button { border: none; padding: 2px 8px; background: transparent; }
+        .zoom-controls button:hover { background: #eee; }
+        #info-text { margin-left: auto; color: #0056b3; font-size: 13px; font-weight: bold; }
+        
+        #main-split { display: flex; flex: 1; overflow: hidden; }
+        
+        #sidebar { width: 220px; background-color: #fafafa; border-right: 1px solid #ccc; overflow-y: auto; padding: 5px 0; font-size: 13px; user-select: none; }
+        details { margin: 0; }
+        summary { cursor: pointer; padding: 4px 8px; color: #333; font-weight: 600; }
+        summary:hover { background: #e0e0e0; }
+        .tree-item { padding: 4px 8px 4px 24px; cursor: pointer; color: #444; margin: 0; display: flex; align-items: center; }
+        .tree-item:hover { background-color: #eaeaea; }
+        .tree-item.selected { background-color: #005A9E; color: white; }
+        
+        #content-area { flex: 1; background-color: #555; overflow: auto; position: relative; display: flex; justify-content: center; align-items: center; }
+        canvas { display: none; transform-origin: top left; cursor: default; box-shadow: 0 4px 12px rgba(0,0,0,0.4); background-color: white; }
+        iframe { display: none; width: 100%; height: 100%; border: none; background: white; }
+        #error-msg { display: none; color: #ff6b6b; font-size: 16px; font-weight: bold; text-align: center; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 8px; }
+
+        /* 强制横屏的 CSS 类 */
+        .mobile-rotated {
+            /* 将元素的中心点移到屏幕正中央，并旋转 90 度 */
+            transform: translate(-50%, -50%) rotate(90deg) !important;
+            /* 关键：宽度变成设备的高度，高度变成设备的宽度！ */
+            width: 100vh !important;  
+            height: 100vw !important; 
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="auth-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2b303b; z-index: 999999; display: flex; justify-content: center; align-items: center; color: white; flex-direction: column; text-align: center; font-family: 'Microsoft YaHei', sans-serif;">
+    <div style="background: rgba(255,255,255,0.1); padding: 40px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);">
+        <h2 style="margin-top:0; letter-spacing: 2px;">3C 系统需授权访问</h2>
+        <p style="color:#aaa; font-size:14px; margin-bottom: 20px;">请将下方设备码发给管理员获取激活码</p>
+        
+        <h3 style="margin-bottom: 30px;">设备码: <span id="display-device-id" style="color:#00e5ff; letter-spacing: 3px;">读取中...</span></h3>
+        
+        <input type="text" id="key-input" placeholder="请输入激活码" style="width: 100%; padding: 12px; margin-bottom: 20px; border-radius: 5px; border: none; font-size: 16px; text-align: center; outline: none; text-transform: uppercase;">
+        
+        <button onclick="verifyKey()" style="width: 100%; padding: 12px; background: #0066ff; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer;">激活系统</button>
+        
+        <p id="auth-error" style="color: #ff4444; margin-top: 15px; display: none;">❌ 激活码错误，请重新确认！</p>
+    </div>
+</div>
+
+    <div id="toolbar">
+        <select id="lang-select">
+            <option value="CN">简体中文</option><option value="TW">繁體中文</option>
+            <option value="EN">English</option><option value="FR">Français</option>
+            <option value="DE">Deutsch</option><option value="ES">Español</option>
+            <option value="IT">Italiano</option><option value="AR">العربية</option>
+            <option value="JA">日本語</option><option value="KO">한국어</option>
+        </select>
+        <button id="btn-flip">↔️ 翻转 (左)</button>
+        <button id="btn-measure">📐 测量工具</button>
+        <div class="zoom-controls">
+            <button id="btn-zoom-out">-</button>
+            <span id="lbl-zoom" style="width: 45px; text-align: center; font-size: 12px;">100%</span>
+            <button id="btn-zoom-in">+</button><button id="fullscreen-btn" onclick="toggleFullScreen()" style="cursor: pointer;">
+                ⛶ 
+            <button id="rotate-btn" onclick="toggleRotation()" style="cursor: pointer;">
+                ↻ 90°
+            </button>
+        </div>
+        <span id="info-text">加载中...</span>
+    </div>
+
+    <div id="main-split">
+        <div id="sidebar"></div>
+        <div id="content-area">
+            <canvas id="canvas"></canvas>
+            <iframe id="pdf-viewer"></iframe>
+            <div id="error-msg"></div>
+        </div>
+    </div>
+
+    <script>
+        const LANG_MAP = {
+            "CN": { "title": "3C 人体测量系统", "flip_on": "↔ 已镜像", "flip_off": "↔ 翻转", "measure": "📐 测量工具", "measure_on": "测量模式: 左键中心，右键重置", "measure_off": "浏览模式: 点击区域查看详情", "load": "当前:", "missing": "文件缺失:", "简介": "📄 简介", "技术要求": "📄 技术要求", "头颈部": "📂 头颈部", "正面": "正面", "分区": "分区", "胸腹部": "📂 胸腹部", "背面": "背面", "上肢": "📂 上肢", "肩关节": "肩关节", "上臂": "📂 上臂", "屈侧": "屈侧", "伸侧": "伸侧", "肘关节": "肘关节", "前臂": "📂 前臂", "腕关节": "腕关节", "手部": "📂 手部", "掌面": "掌面", "下肢": "📂 下肢", "髋关节": "髋关节", "大腿": "📂 大腿", "膝关节": "膝关节", "小腿": "📂 小腿", "踝关节": "踝关节", "足部": "📂 足部", "背侧": "背侧", "底部": "底部", "备注": "📄 备注" },
+            "TW": { "title": "3C 人體測量系統", "flip_on": "↔ 已鏡像", "flip_off": "↔ 翻轉", "measure": "📐 測量工具", "measure_on": "測量模式: 左鍵中心，右鍵重置", "measure_off": "瀏覽模式: 點擊區域查看詳情", "load": "當前:", "missing": "文件缺失:", "简介": "📄 簡介", "技术要求": "📄 技術要求", "头颈部": "📂 頭頸部", "正面": "正面", "分区": "分區", "胸腹部": "📂 胸腹部", "背面": "背面", "上肢": "📂 上肢", "肩关节": "肩關節", "上臂": "📂 上臂", "屈侧": "屈側", "伸侧": "伸側", "肘关节": "肘關節", "前臂": "📂 前臂", "腕关节": "腕關節", "手部": "📂 手部", "掌面": "掌面", "下肢": "📂 下肢", "髋关节": "髖關節", "大腿": "📂 大腿", "膝关节": "膝關節", "小腿": "📂 小腿", "踝关节": "踝關節", "足部": "📂 足部", "背侧": "背側", "底部": "底部", "备注": "📄 備註" },
+            "EN": { "title": "3C Measure System", "flip_on": "↔ Flipped", "flip_off": "↔ Flip", "measure": "📐 Measure", "measure_on": "Measure Mode: L-Click Center, R-Click Reset", "measure_off": "View Mode: Click regions for details", "load": "Loaded:", "missing": "Missing:", "简介": "📄 Introduction", "技术要求": "📄 Technical requirements", "头颈部": "📂 Head/Neck", "正面": "Front", "分区": "Zones", "胸腹部": "📂 Torso", "背面": "Back", "上肢": "📂 Upper Limb", "肩关节": "Shoulder", "上臂": "📂 Upper Arm", "屈侧": "Flexor", "伸侧": "Extensor", "肘关节": "Elbow", "前臂": "📂 Forearm", "腕关节": "Wrist", "手部": "📂 Hand", "掌面": "Palm", "下肢": "📂 Lower Limb", "髋关节": "Hip", "大腿": "📂 Thigh", "膝关节": "Knee", "小腿": "📂 Calf", "踝关节": "Ankle", "足部": "📂 Foot", "背侧": "Dorsal", "底部": "Sole", "备注": "📄 Notes" },
+            "FR": { "title": "3C Mesure Systeme", "flip_on": "↔ Renversé", "flip_off": "↔ Reverser", "measure": "📐 Mesure", "measure_on": "Mesure Mode: G-Clique Center, D-Clique Réinitialiser", "measure_off": "Voir Mode: Cliquez régions pour détails", "load": "Chargée:", "missing": "Manquante:", "简介": "📄 Introduction", "技术要求": "📄 Exigences techniques", "头颈部": "📂 Tête/Cou", "正面": "Face", "分区": "Zones", "胸腹部": "📂 Torse", "背面": "Arrière", "上肢": "📂 Membre supérieur", "肩关节": "Epaule", "上臂": "📂 Bras", "屈侧": "Flexor", "伸侧": "Extensor", "肘关节": "Coude", "前臂": "📂 Avant-bras", "腕关节": "Poignet", "手部": "📂 Main", "掌面": "Palmaire", "下肢": "📂 Membre inférieur", "髋关节": "Hanche", "大腿": "📂 Cuisse", "膝关节": "Genou", "小腿": "📂 Jambe", "踝关节": "Cheville", "足部": "📂 Pied", "背侧": "Dorsal", "底部": "Plantaire", "备注": "📄 Notes" },
+            "DE": { "title": "3C Messsystem", "flip_on": "↔ Gespiegelt", "flip_off": "↔ Spiegeln", "measure": "📐 Messen", "measure_on": "Messmodus: L-Klick Mitte, R-Klick Zurücksetzen", "measure_off": "Ansichtsmodus: Bereiche für Details anklicken", "load": "Geladen:", "missing": "Fehlend:", "简介": "📄 Einführung", "技术要求": "📄 Technische Anforderungen", "头颈部": "📂 Kopf/Hals", "正面": "Vorne", "分区": "Zonen", "胸腹部": "📂 Rumpf", "背面": "Hinten", "上肢": "📂 Obere Extremität", "肩关节": "Schulter", "上臂": "📂 Oberarm", "屈侧": "Beugeseite", "伸侧": "Streckseite", "肘关节": "Ellenbogen", "前臂": "📂 Unterarm", "腕关节": "Handgelenk", "手部": "📂 Hand", "掌面": "Handfläche", "下肢": "📂 Untere Extremität", "髋关节": "Hüfte", "大腿": "📂 Oberschenkel", "膝关节": "Knie", "小腿": "📂 Unterschenkel", "踝关节": "Knöchel", "足部": "📂 Fuß", "背侧": "Fußrücken", "底部": "Fußsohle", "备注": "📄 Notizen" },
+            "ES": { "title": "Sistema de Medición 3C", "flip_on": "↔ Volteado", "flip_off": "↔ Voltear", "measure": "📐 Medir", "measure_on": "Modo Medición: Clic-I Centro, Clic-D Reiniciar", "measure_off": "Modo Vista: Clic en regiones para detalles", "load": "Cargado:", "missing": "Falta:", "简介": "📄 Introducción", "技术要求": "📄 Requisitos técnicos", "头颈部": "📂 Cabeza/Cuello", "正面": "Frente", "分区": "Zonas", "胸腹部": "📂 Torso", "背面": "Espalda", "上肢": "📂 Miembro superior", "肩关节": "Hombro", "上臂": "📂 Brazo", "屈侧": "Flexor", "伸侧": "Extensor", "肘关节": "Codo", "前臂": "📂 Antebrazo", "腕关节": "Muñeca", "手部": "📂 Mano", "掌面": "Palma", "下肢": "📂 Miembro inferior", "髋关节": "Cadera", "大腿": "📂 Muslo", "膝关节": "Rodilla", "小腿": "📂 Pierna", "踝关节": "Tobillo", "足部": "📂 Pie", "背侧": "Dorsal", "底部": "Planta", "备注": "📄 Notas" },
+            "IT": { "title": "Sistema di Misurazione 3C", "flip_on": "↔ Capovolto", "flip_off": "↔ Capovolgi", "measure": "📐 Misura", "measure_on": "Modo Misura: Clic-S Centro, Clic-D Ripristina", "measure_off": "Modo Vista: Clicca le regioni per dettagli", "load": "Caricato:", "missing": "Mancante:", "简介": "📄 Introduzione", "技术要求": "📄 Requisiti tecnici", "头颈部": "📂 Testa/Collo", "正面": "Fronte", "分区": "Zone", "胸腹部": "📂 Busto", "背面": "Schiena", "上肢": "📂 Arto superiore", "肩关节": "Spalla", "上臂": "📂 Braccio", "屈侧": "Flessore", "伸侧": "Estensore", "肘关节": "Gomito", "前臂": "📂 Avambraccio", "腕关节": "Polso", "手部": "📂 Mano", "掌面": "Palmo", "下肢": "📂 Arto inferiore", "髋关节": "Anca", "大腿": "📂 Coscia", "膝关节": "Ginocchio", "小腿": "📂 Polpaccio", "踝关节": "Caviglia", "足部": "📂 Piede", "背侧": "Dorsale", "底部": "Pianta", "备注": "📄 Note" },
+            "AR": { "title": "نظام قياس 3C", "flip_on": "↔ معكوس", "flip_off": "↔ عكس", "measure": "📐 قياس", "measure_on": "وضع القياس: نقر أيسر للمركز، نقر أيمن لإعادة التعيين", "measure_off": "وضع العرض: انقر على المناطق للتفاصيل", "load": "تم التحميل:", "missing": "مفقود:", "简介": "📄 مقدمة", "技术要求": "📄 المتطلبات الفنية", "头颈部": "📂 الرأس/الرقبة", "正面": "أمامي", "分区": "المناطق", "胸腹部": "📂 الجذع", "背面": "خلفي", "上肢": "📂 الطرف العلوي", "肩关节": "الكتف", "上臂": "📂 العضد", "屈侧": "مثنية", "伸侧": "باسطة", "肘关节": "المرفق", "前臂": "📂 الساعد", "腕关节": "المعصم", "手部": "📂 اليد", "掌面": "راحة اليد", "下肢": "📂 الطرف السفلي", "髋关节": "الورك", "大腿": "📂 الفخذ", "膝关节": "الركبة", "小腿": "📂 الساق", "踝关节": "الكاحل", "足部": "📂 القدم", "背侧": "ظهري", "底部": "أخمص القدم", "备注": "📄 ملاحظات" },
+            "JA": { "title": "3C 測定システム", "flip_on": "↔ 反転済み", "flip_off": "↔ 反転", "measure": "📐 測定", "measure_on": "測定モード: 左クリックで中心、右クリックでリセット", "measure_off": "表示モード: 領域をクリックして詳細を表示", "load": "読み込み済:", "missing": "未検出:", "简介": "📄 はじめに", "技术要求": "📄 技術要件", "头颈部": "📂 頭/頸部", "正面": "正面", "分区": "区分", "胸腹部": "📂 胴体", "背面": "背面", "上肢": "📂 上肢", "肩关节": "肩", "上臂": "📂 上腕", "屈侧": "屈側", "伸侧": "伸側", "肘关节": "肘", "前臂": "📂 前腕", "腕关节": "手首", "手部": "📂 手", "掌面": "掌側", "下肢": "📂 下肢", "髋关节": "股関節", "大腿": "📂 大腿", "膝关节": "膝", "小腿": "📂 下腿", "踝关节": "足首", "足部": "📂 足", "背侧": "足背", "底部": "足底", "备注": "📄 備考" },
+            "KO": { "title": "3C 측정 시스템", "flip_on": "↔ 반전됨", "flip_off": "↔ 반전", "measure": "📐 측정", "measure_on": "측정 모드: 좌클릭 중심 설정, 우클릭 초기화", "measure_off": "보기 모드: 영역 클릭하여 상세 보기", "load": "불러옴:", "missing": "누락됨:", "简介": "📄 소개", "技术要求": "📄 기술 요구 사항", "头颈部": "📂 머리/목", "正面": "정면", "分区": "구역", "胸腹部": "📂 몸통", "背面": "후면", "上肢": "📂 상지", "肩关节": "어깨", "上臂": "📂 상완", "屈侧": "굴측", "伸侧": "신측", "肘关节": "팔꿈치", "前臂": "📂 전완", "腕关节": "손목", "手部": "📂 손", "掌面": "손바닥", "下肢": "📂 하지", "髋关节": "고관절", "大腿": "📂 대퇴", "膝关节": "무릎", "小腿": "📂 하퇴", "踝关节": "발목", "足部": "📂 발", "背侧": "발등", "底部": "발바닥", "备注": "📄 참고" }         
+        };
+
+        const menuStructure = [
+            { name: "简介", file: "introduction.pdf" },
+            { name: "技术要求", file: "technical_requirements.pdf" },
+            { name: "头颈部", children: [ { name: "正面", file: "head_front.jpg" }, { name: "侧面", file: "head_side.jpg" } ] },
+            { name: "胸腹部", children: [ { name: "正面", file: "chest_abdomen_front.jpg" }, { name: "分区", file: "chest_abdomen_partition.jpg" }, { name: "背面", file: "chest_abdomen_back.jpg" } ] },
+            { name: "上肢", children: [ 
+                { name: "肩关节", file: "shoulder_hip.jpg" },
+                { name: "上臂", children: [ { name: "屈侧", file: "arm_thigh_flexor.png" }, { name: "伸侧", file: "arm_thigh_extensor.png" } ] },
+                { name: "肘关节", file: "elbow_knee.jpg" },
+                { name: "前臂", children: [ { name: "屈侧", file: "forearm_crus_flexor.png" }, { name: "伸侧", file: "forearm_crus_extensorv2.png" } ] },
+                { name: "腕关节", file: "wrist_ankle.jpg" },
+                { name: "手部", children: [ { name: "掌面", file: "hand_foot_palm.jpg" }, { name: "背侧", file: "hand_foot_dorsal.jpg" } ] }
+            ] },
+            { name: "下肢", children: [ 
+                { name: "髋关节", file: "shoulder_hip.jpg" },
+                { name: "大腿", children: [ { name: "伸侧", file: "arm_thigh_extensor.png" }, { name: "屈侧", file: "arm_thigh_flexor.png" } ] },
+                { name: "膝关节", file: "elbow_knee.jpg" },
+                { name: "小腿", children: [ { name: "伸侧", file: "forearm_crus_extensorv2.png" }, { name: "屈侧", file: "forearm_crus_flexor.png" } ] },
+                { name: "踝关节", file: "wrist_ankle.jpg" },
+                { name: "足部", children: [ { name: "背侧", file: "hand_foot_dorsal.jpg" }, { name: "底部", file: "hand_foot_palm.jpg" } ] }
+            ] },
+            { name: "备注", file: "remarks.pdf" }
+        ];
+
+        // 核心全局变量
+        let shapesData = {};
+        let currentLang = "CN";
+        let isFlipped = false;
+        let measureMode = false;
+        let currentScale = 1.0;
+        let centerPoint = null;
+        let mousePoint = null;
+        let loadedImage = null;
+        
+        let currentFileName = null; // 当前正在查看的图片文件名
+        let activeGroupId = null;   // 当前被点击高亮的 区域/组 ID
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const iframe = document.getElementById('pdf-viewer');
+        const errorMsg = document.getElementById('error-msg');
+        const t = (key) => LANG_MAP[currentLang][key] || key;
+
+        async function init() {
+            // 加载 JSON 标注数据
+            try {
+                const res = await fetch('shapes_data.json');
+                shapesData = await res.json();
+            } catch (e) { console.warn("未找到 shapes_data.json 数据。"); }
+
+            buildMenu();
+            updateUIText();
+            
+            document.getElementById('lang-select').addEventListener('change', (e) => { currentLang = e.target.value; buildMenu(); updateUIText(); });
+            document.getElementById('btn-flip').addEventListener('click', toggleFlip);
+            document.getElementById('btn-measure').addEventListener('click', toggleMeasure);
+            document.getElementById('btn-zoom-in').addEventListener('click', () => setScale(currentScale * 1.2));
+            document.getElementById('btn-zoom-out').addEventListener('click', () => setScale(currentScale * 0.8));
+            
+            canvas.addEventListener('mousedown', onCanvasMouseDown);
+            canvas.addEventListener('mousemove', onCanvasMouseMove);
+            canvas.addEventListener('contextmenu', (e) => { 
+                e.preventDefault(); 
+                if(measureMode) { centerPoint = null; renderCanvas(); }
+            });
+
+            function touchToMouse(e, actionHandler) {
+            e.preventDefault();  // 阻隔断截老手机下搓页被拖屏放大误行！这是极其大灵妙杀招神手印护防墙。
+            // 当这没左实木右软键盘去压屏取信息这用手机法摸的第一位置。假伪充进原核心！老计算芯受下执行！全救回来全无不漏发点。 
+            const touch = e.touches[0] || e.changedTouches[0];
+            if(touch) {
+                 e.clientX = touch.clientX;
+                 e.clientY = touch.clientY;
+            }
+            e.button = 0;   // （关键药引！）这等于拿伪硬塞的"骗证件左鼠标码 0 "蒙换塞过了你们底楼要求通缉拦堵卡，保证下面执行绿灯发。
+            actionHandler(e);
+        }
+
+        // 开办收押转达专门接待热路子。触手机压去送代为跑：   
+        canvas.addEventListener('touchstart', (e) => touchToMouse(e, onCanvasMouseDown), { passive: false });
+        canvas.addEventListener('touchmove', (e) => touchToMouse(e, onCanvasMouseMove), { passive: false });
+            
+            // 自动选中第一张图片
+            setTimeout(() => {
+                const firstImgItem = document.querySelectorAll('.tree-item')[2]; 
+                if(firstImgItem) firstImgItem.click();
+            }, 100);
+        }
+
+        function buildMenu() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.innerHTML = '';
+            
+            function createNode(nodeData, parentElement) {
+                if (nodeData.file) {
+                    const div = document.createElement('div');
+                    div.className = 'tree-item';
+                    div.textContent = t(nodeData.name);
+                    div.onclick = () => {
+                        document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'));
+                        div.classList.add('selected');
+                        loadFile(nodeData.file);
+                    };
+                    parentElement.appendChild(div);
+                } else if (nodeData.children) {
+                    const details = document.createElement('details');
+                    details.open = true;
+                    const summary = document.createElement('summary');
+                    summary.textContent = t(nodeData.name);
+                    details.appendChild(summary);
+                    nodeData.children.forEach(child => createNode(child, details));
+                    parentElement.appendChild(details);
+                }
+            }
+            menuStructure.forEach(item => createNode(item, sidebar));
+        }
+
+        function updateUIText() {
+            document.title = t("title");
+            document.getElementById('btn-measure').textContent = t("measure");
+            document.getElementById('info-text').textContent = measureMode ? t("measure_on") : t("measure_off");
+            const btnFlip = document.getElementById('btn-flip');
+            btnFlip.textContent = isFlipped ? t("flip_on") : t("flip_off");
+        }
+
+        function loadFile(filename) {
+            currentFileName = filename;
+            activeGroupId = null; // 切换图片时清空高亮
+            measureMode = false;
+            centerPoint = null;
+            isFlipped = false;
+            document.getElementById('btn-measure').classList.remove('active');
+            updateUIText();
+
+            if (filename.endsWith('.pdf')) {
+                canvas.style.display = 'none';
+                errorMsg.style.display = 'none';
+                iframe.style.display = 'block';
+                iframe.src = filename;
+                document.getElementById('btn-flip').disabled = true;
+                document.getElementById('btn-measure').disabled = true;
+                document.getElementById('info-text').textContent = t("load") + " " + filename;
+            } else {
+                iframe.style.display = 'none';
+                document.getElementById('btn-flip').disabled = false;
+                document.getElementById('btn-measure').disabled = false;
+                
+                const img = new Image();
+                img.onload = () => {
+                    loadedImage = img;
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    
+                    let cw = document.getElementById('content-area').clientWidth;
+                    let ch = document.getElementById('content-area').clientHeight;
+                    if (cw === 0) cw = 800; 
+                    if (ch === 0) ch = 600; 
+                    
+                    currentScale = Math.min(cw / img.width, ch / img.height) * 0.95;
+                    setScale(currentScale);
+                    
+                    canvas.style.display = 'block';
+                    errorMsg.style.display = 'none';
+                    document.getElementById('info-text').textContent = t("load") + " " + filename;
+                };
+                img.onerror = () => {
+                    canvas.style.display = 'none';
+                    errorMsg.style.display = 'block';
+                    errorMsg.textContent = `${t("missing")} ${filename}`;
+                };
+                img.src = filename;
+            }
+        }
+
+        function toggleFlip() {
+            if(!loadedImage) return;
+            isFlipped = !isFlipped;
+            updateUIText();
+            document.getElementById('btn-flip').classList.toggle('active', isFlipped);
+            renderCanvas();
+        }
+
+        function toggleMeasure() {
+            measureMode = !measureMode;
+            centerPoint = null;
+            activeGroupId = null; // 进入测量模式取消高亮
+            const btn = document.getElementById('btn-measure');
+            btn.classList.toggle('active', measureMode);
+            canvas.style.cursor = measureMode ? 'crosshair' : 'default';
+            updateUIText();
+            renderCanvas();
+        }
+
+        function setScale(s) {
+            if (s <= 0.05) s = 0.05;
+            currentScale = s;
+            document.getElementById('lbl-zoom').textContent = Math.round(s * 100) + '%';
+            if(loadedImage) {
+                canvas.style.width = (loadedImage.width * currentScale) + 'px';
+                canvas.style.height = (loadedImage.height * currentScale) + 'px';
+                renderCanvas();
+            }
+        }
+
+        // ==========================================
+        // 核心渲染引擎 (包含图片、高亮框、测量工具)
+        // ==========================================
+        function renderCanvas() {
+            if(!loadedImage) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 1. 绘制底层图片
+            ctx.save();
+            if (isFlipped) {
+                ctx.scale(-1, 1);
+                ctx.translate(-canvas.width, 0);
+            }
+            ctx.drawImage(loadedImage, 0, 0);
+
+            // 2. 绘制区域高亮 (浏览模式互动)
+            if (!measureMode && activeGroupId && shapesData[currentFileName]) {
+                const shapes = shapesData[currentFileName];
+                shapes.forEach(s => {
+                    if (s.group_id === activeGroupId) {
+                        ctx.fillStyle = "rgba(255, 0, 0, 1)"; 
+                        ctx.strokeStyle = "red";
+                        ctx.lineWidth = 2 / currentScale;
+
+                        ctx.beginPath();
+                        if (s.type === "rect") {
+                            const x = Math.min(s.coords[0], s.coords[2]);
+                            const y = Math.min(s.coords[1], s.coords[3]);
+                            const w = Math.abs(s.coords[2] - s.coords[0]);
+                            const h = Math.abs(s.coords[3] - s.coords[1]);
+                            ctx.rect(x, y, w, h);
+                        } else if (s.type === "polygon") {
+                            ctx.moveTo(s.coords[0], s.coords[1]);
+                            for (let i = 2; i < s.coords.length; i += 2) {
+                                ctx.lineTo(s.coords[i], s.coords[i+1]);
+                            }
+                            ctx.closePath();
+                        }
+                        ctx.fill();
+                        ctx.stroke();
+                    }
+                });
+            }
+            ctx.restore();
+
+            // 3. 绘制测量工具 O-M-P
+            if (measureMode && centerPoint) {
+                drawPoint(centerPoint.x, centerPoint.y, "O", "#FFD700");
+                if (mousePoint) {
+                    const px = 2 * centerPoint.x - mousePoint.x;
+                    const py = 2 * centerPoint.y - mousePoint.y;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(mousePoint.x, mousePoint.y);
+                    ctx.lineTo(px, py);
+                    ctx.strokeStyle = "#00FF00";
+                    ctx.lineWidth = 4 / currentScale;
+                    ctx.stroke();
+                    
+                    drawPoint(mousePoint.x, mousePoint.y, "M", "#00FFFF");
+                    drawPoint(px, py, "P", "#FF3333");
+                }
+            }
+        }
+
+        function drawPoint(x, y, label, color) {
+            const r = 8 / currentScale;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3 / currentScale;
+            ctx.stroke();
+            
+            ctx.fillStyle = color;
+            ctx.font = `bold ${16/currentScale}px Arial`;
+            ctx.fillText(label, x + r*1.2, y + r*1.2);
+        }
+
+        function getMouseLogicPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            
+            // 我们拿到不论老桌脑与触滑拿屏最初步实报相减距离屏左右位真实的原始离距：（这是外端绝对准绳无涉旋变位！没问题基础）
+            let physDX = e.clientX - rect.left;
+            let physDY = e.clientY - rect.top;
+            
+            let rawLogicX = physDX;
+            let rawLogicY = physDY;
+
+            // ⚠️这是专门补天定轴大法的法器——逆心决阵眼阵。一旦探测手机发生打翻过变旋转过这壳（就是带有这个特牌。一切向将强逆运算打直打回去补还！）
+            if (document.body.classList.contains("mobile-rotated")) {
+                // (这是手机因宽当高度拿竖框躺在横拿下被你强暴转视扭乱后产生的时空：我们直接在这将其逆向轴调补！) 此时的真 Y其实反映着物理 X！原顶右实则成了框身真底下底座厚长度拿。全部完美化化推合无误差缝线合出真点：
+                rawLogicX = physDY; 
+                rawLogicY = rect.width - physDX; 
+            }
+            
+            // 后做照常用常你们从老款前带过的正法放大折解归心位数定数比化
+            let x = rawLogicX / currentScale;
+            let y = rawLogicY / currentScale;
+
+            // (这保本全不变留）在遇了上面工具如果真使用到了照转相图法！要相辅配合着还原！不动一分，完美融合生效全保留法
+            if (isFlipped && loadedImage) {
+                x = loadedImage.width - x;
+            }
+            return {x, y};
+        }
+    
+        // 射线法：判断点是否在多边形/矩形内 (复刻自您的 Python 源码)
+        function isPointInShape(x, y, shape) {
+            if (shape.type === "rect") {
+                const minX = Math.min(shape.coords[0], shape.coords[2]);
+                const maxX = Math.max(shape.coords[0], shape.coords[2]);
+                const minY = Math.min(shape.coords[1], shape.coords[3]);
+                const maxY = Math.max(shape.coords[1], shape.coords[3]);
+                return x >= minX && x <= maxX && y >= minY && y <= maxY;
+            } else if (shape.type === "polygon") {
+                let inside = false;
+                const c = shape.coords;
+                let j = c.length - 2;
+                for (let i = 0; i < c.length; i += 2) {
+                    let xi = c[i], yi = c[i+1];
+                    let xj = c[j], yj = c[j+1];
+                    let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                    if (intersect) inside = !inside;
+                    j = i;
+                }
+                return inside;
+            }
+            return false;
+        }
+
+        function onCanvasMouseDown(e) {
+            if(e.button !== 0) return;
+            
+            if (measureMode) {
+                // 测量模式逻辑
+                centerPoint = getMouseLogicPos(e);
+                mousePoint = null;
+                renderCanvas();
+            } else {
+                // 浏览模式逻辑：点击识别高亮区域
+                const logicPos = getMouseLogicPos(e);
+                const shapes = shapesData[currentFileName] || [];
+                let clickedId = null;
+                
+                for (let shape of shapes) {
+                    if (isPointInShape(logicPos.x, logicPos.y, shape)) {
+                        clickedId = shape.group_id;
+                        break;
+                    }
+                }
+                activeGroupId = clickedId;
+                renderCanvas();
+            }
+        }
+
+        function onCanvasMouseMove(e) {
+            if(!measureMode || !centerPoint) return;
+            mousePoint = getMouseLogicPos(e);
+            requestAnimationFrame(renderCanvas);
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+
+<script>
+    // ⚠️管理员私钥，必须与 Python 算号器里的完全一致！
+    const SECRET_SALT = "My3CSystem2024hggghjklmpo,m696587hg"; 
+
+    // 1. 读取或生成简短的 8 位设备码
+    let deviceId = localStorage.getItem('3c_device_id');
+    if (!deviceId) {
+        // 生成形如 "X8K9M2P4" 的 8位全大写设备码，去掉了容易混淆的 0,O,1,I
+        const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+        deviceId = '';
+        for(let i=0; i<8; i++) deviceId += chars.charAt(Math.floor(Math.random() * chars.length));
+        localStorage.setItem('3c_device_id', deviceId);
+    }
+    document.getElementById('display-device-id').innerText = deviceId;
+
+    // 2. 简易 Hash 算号算法
+    function generateKey(did) {
+        let str = did + SECRET_SALT;
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = (hash << 5) - hash + str.charCodeAt(i);
+            hash |= 0; 
+        }
+        return Math.abs(hash).toString(16).toUpperCase();
+    }
+
+    // 3. 检查是否已经激活
+    if (localStorage.getItem('3c_is_activated') === 'true') {
+        document.getElementById('auth-overlay').style.display = 'none'; 
+    }
+
+    // 4. 点击验证
+    function verifyKey() {
+        const inputKey = document.getElementById('key-input').value.trim().toUpperCase();
+        const correctKey = generateKey(deviceId);
+        
+        if (inputKey === correctKey) {
+            localStorage.setItem('3c_is_activated', 'true'); 
+            document.getElementById('auth-overlay').style.opacity = '0'; 
+            setTimeout(() => { document.getElementById('auth-overlay').style.display = 'none'; }, 300);
+        } else {
+            document.getElementById('auth-error').style.display = 'block';
+        }
+    }
+// ================= 全屏控制功能 =================
+function toggleFullScreen() {
+    const btn = document.getElementById("fullscreen-btn");
+    
+    // 判断当前是否处于全屏状态
+    if (!document.fullscreenElement &&    // 标准写法
+        !document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) { 
+        
+        // 【进入全屏】
+        let docElm = document.documentElement; // 获取整个网页
+        if (docElm.requestFullscreen) {
+            docElm.requestFullscreen();
+        } else if (docElm.msRequestFullscreen) {
+            docElm.msRequestFullscreen();
+        } else if (docElm.mozRequestFullScreen) {
+            docElm.mozRequestFullScreen();
+        } else if (docElm.webkitRequestFullscreen) {
+            docElm.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+        }
+        // 改变按钮文字
+        btn.innerText = "🗗";
+        
+    } else {
+        // 【退出全屏】
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+        // 恢复按钮文字
+        btn.innerText = "⛶";
+    }
+}
+
+</script>    
+
+<script>
+    // 这是专属于我们的独立转动程序包
+        let isRotated = false;
+
+        function toggleRotation() {
+                 const body = document.body;
+                 // 获取你的纯字符小弯按钮！(您确认它之前名叫这个名没丢哈？)
+                 const rotateBtn = document.getElementById("rotate-btn");
+        
+                 isRotated = !isRotated; 
+
+                 if (isRotated) {
+                        body.classList.add("mobile-rotated");
+                        if (rotateBtn) rotateBtn.innerText = "↺ 90°";
+                 } else {
+                        body.classList.remove("mobile-rotated");
+                        if (rotateBtn) rotateBtn.innerText = "↻ 90°";
+                 }
+          }
+</script>
+
+</body>
+</html>
