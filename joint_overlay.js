@@ -34,7 +34,25 @@
         center: {x: 1321, y: 794}, baseAngle: 0,
         contour: [[1198,672],[1235,636],[1280,622],[1333,624],[1391,642],[1440,674],[1473,720],[1491,768],[1491,815],[1473,859],[1438,899],[1385,927],[1322,938],[1264,924],[1215,894],[1180,853],[1159,807],[1158,758],[1173,711]]
       },
-      dial: {x: 1020, y: 803, r: 54}
+      dial: {x: 1020, y: 1003, r: 54}
+    },
+    'forearm_crus_flexor.png': {
+      file: 'forearm_crus_flexor.png', referenceWidth: 2048, referenceHeight: 1150,
+      sourceShapeWidth: 2048, sourceShapeHeight: 1150,
+      // 前臂横断面：0°从左侧开始。彩色组织会干扰像素找边，因此采用校准轮廓。
+      elbow: {
+        center: {x: 936, y: 671}, baseAngle: 180, labelOffsetY: -20,
+        useImageBoundary: false,
+        contour: [[755,642],[768,596],[806,563],[856,548],[918,545],[986,548],[1048,562],[1094,590],[1123,628],[1132,670],[1122,714],[1088,752],[1036,778],[978,793],[914,797],[850,790],[800,769],[770,737],[756,696]]
+      },
+      // 小腿横断面：0°从右侧开始，与前臂保持同方向旋转。
+      knee: {
+        center: {x: 1768, y: 650}, baseAngle: 0, labelOffsetY: -20,
+        useImageBoundary: false,
+        contour: [[1576,624],[1590,572],[1620,520],[1677,500],[1733,486],[1798,483],[1840,515],[1878,548],[1910,585],[1949,615],[1947,666],[1929,716],[1893,757],[1845,784],[1785,801],[1724,805],[1655,798],[1608,770],[1560,751],[1578,724],[1570,666]]
+      },
+      // 圆盘置于两个横断面之间的下方，避免遮挡箭头。
+      dial: {x: 1352, y: 965, r: 54}
     }
   };
   let overlay = overlays['elbow_knee.jpg'];
@@ -148,7 +166,8 @@
     const center = pt(def.center);
     const contour = def.contour.map(p => [p[0] * sx(), p[1] * sy()]);
     // 优先寻找原图上的真实彩色皮肤边缘，失败时才使用备用轮廓。
-    const end = imageBoundaryHit(center, visualDegrees) || rayHit(center, visualDegrees, contour);
+    const imageHit = def.useImageBoundary === false ? null : imageBoundaryHit(center, visualDegrees);
+    const end = imageHit || rayHit(center, visualDegrees, contour);
     if (!end) return;
     const x1 = shownX(center.x), y1 = center.y;
     const x2 = shownX(end.x), y2 = end.y;
